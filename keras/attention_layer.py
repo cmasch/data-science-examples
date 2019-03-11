@@ -37,7 +37,7 @@ class RecurrentAttention(Layer):
     def build(self, input_shape):
         
         if len(input_shape) != 3:
-            raise Exception('The input should have 3 dimensions. Maybe you forgot: `return_sequence = True` for RNN layer.')
+            raise Exception('The input should have 3 dimensions. Maybe you forgot: `return_sequences = True` for RNN layer.')
         
         self.W = self.add_weight(
             shape = (input_shape[-1], input_shape[-1],),
