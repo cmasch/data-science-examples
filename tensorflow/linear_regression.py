@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Example for linear regression in TensorFlow 2.x
+This demo includes two different approaches (Keras & Gradient Tape)
 
 @author: Christopher Masch
 """
@@ -10,62 +11,90 @@ from tensorflow import keras
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Parameters
-learning_rate = 0.01
-nb_epochs = 10
+# Parameter
+learning_rate = 0.001
+nb_epochs     = 10
+batch_size    = 5
+gen_samples   = 50
+use_keras     = True # If False, Gradient Tape is used instead of Keras Sequential API
 
 # Generating linear data
-X_train = np.arange(10).reshape((10, 1))
-y_train = np.array([i for i in [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]])
+X_train = np.arange(gen_samples).reshape((gen_samples,1)).astype(np.float32)
+y_train = np.array([i for i in range(gen_samples)]).astype(np.float32)
+train   = tf.data.Dataset.from_tensor_slices((X_train, y_train)).shuffle(buffer_size=batch_size).batch(batch_size)
 
-
-# Building linear layer
+# Building linear layer (x*w+b)
 class LinearLayer(tf.keras.layers.Layer):
-
+    
     def __init__(self, *args, **kwargs):
         super(LinearLayer, self).__init__(*args, **kwargs)
 
     def build(self, input_shape):
-        self.w = self.add_weight(
-            initializer=tf.keras.initializers.zeros(),  # Dont use ones!
+        self.w = self.add_variable(
+            shape=[1,1],
+            initializer=tf.initializers.zeros(), # Dont use ones!
             trainable=True,
             name='weight'
         )
-
+        
+        self.b = self.add_variable(
+            shape=[1],
+            initializer=tf.initializers.zeros(),
+            trainable=True,
+            name='bias'
+        )
+  
     @tf.function
     def call(self, inputs):
-        return inputs * self.w
+        return tf.matmul(inputs, self.w) + self.b
 
 
-model = tf.keras.Sequential([
-    LinearLayer(input_shape=(1,)),
-    # keras.layers.Dense(10), # you can also add Dense layer
-    # keras.layers.Dense(1),
-])
+# Defining learning algo and loss function
+optimizer = tf.optimizers.SGD(learning_rate=learning_rate)
+loss_min  = tf.losses.MSE
 
-optimizer = keras.optimizers.SGD(learning_rate=learning_rate)
+# Metrics
+losses = []
+preds  = []
 
-model.compile(
-    loss='mse',
-    optimizer=optimizer
-)
-
-history = model.fit(
-    X_train, y_train,
-    batch_size=len(X_train),
-    epochs=nb_epochs,
-    verbose=1,
-)
+if use_keras:
+    # Using Keras Sequential API
+    model = tf.keras.Sequential([LinearLayer()])
+    model.compile(
+        loss=loss_min,
+        optimizer=optimizer
+    )
+    history = model.fit(
+        train,
+        epochs=nb_epochs,
+        verbose=1,
+    )
+    preds  = model.predict(X_train)
+    losses = history.history['loss']
+else:
+    # Using automatic differentiation and gradient tape
+    linear_model = LinearLayer()
+    for epoch in range(nb_epochs):
+        print("Epoch {}/{}".format(epoch+1,nb_epochs))
+        for (x, y) in train:
+            with tf.GradientTape() as tape:
+                logits = linear_model(x)
+                logits = tf.squeeze(logits, axis=1)
+                loss   = loss_min(y, logits)
+            grads = tape.gradient(loss, linear_model.trainable_variables)
+            optimizer.apply_gradients(zip(grads, linear_model.trainable_variables))
+        print("loss:", loss.numpy())
+        losses.append(loss.numpy())
+    preds = linear_model(X_train)
 
 # Plot results
 plt.scatter(X_train, y_train, marker='o', label='Training data')
-plt.plot(X_train, model.predict(X_train), 'r', label='Regression model')
+plt.plot(X_train, preds, 'r', label='Regression model')
 plt.legend()
 plt.show()
 
-plt.plot(range(1, len(history.history['loss']) + 1), history.history['loss'])
+plt.plot(range(1, len(losses)+1), losses)
 plt.tight_layout()
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.show()
-
